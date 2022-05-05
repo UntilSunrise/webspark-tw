@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  This template used for test task company WEBSPARK
+  
+Parameters:
+  DomainName:
+    Type: String
+    Description: The DNS name of an existing Amazon Route 53 hosted zone
+    Default: webspark-tw
+  BucketName:
+    Type: String
+    Description: Amazon S3 files bucket name
+    Default: a-webspark-bucket-name
+  HostedZoneId:
+    Type: String
+    Description: Amazon Route53 Hosted Zone Id
+    Default: 321
+  CertificateArn:
+    Type: String
+    Description: Certificate Link
+    Default: 432
+Mappings:
+  RegionS3Bucket:
+    us-east1:
+      Suffix: .s3-website-us-east1.amazonaws.com
+Resources:
+  MyS3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      AccessControl: PublicRead
+      BucketName: !Ref BucketName
+      VersioningConfiguration:
+        Status: Enabled
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+  MyS3BucketPolicy:
+     Type: AWS::S3::BucketPolicy
+     Properties:
+       Bucket: !Ref MyS3Bucket
+       PolicyDocument:
+         Statement:
+           -
+             Action:
+               - s3:*
+             Effect: Allow
+             Resource:
+               - !Sub arn:aws:s3:::${MyS3Bucket}
+               - !Sub arn:aws:s3:::${MyS3Bucket}/*
+             Principal:
+               AWS:
+                 - '*'
+     DependsOn: 
+       - MyS3Bucket
+       - CfOriginAccessIdentity
+  CfOriginAccessIdentity:
+     Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+     Properties:
+       CloudFrontOriginAccessIdentityConfig:
+         Comment: 'Access S3 bucket content only through CloudFront'
+  CloudFrontDistr:
+     Type: AWS::CloudFront::Distribution
+     Properties:
+       DistributionConfig:
+         Comment: CDN for S3-backed website
+         Aliases:
+           - !Ref DomainName
+         CustomErrorResponses:
+           - 
+             ErrorCode: 403
+             ResponsePagePath: /index.html
+             ResponseCode: 200
+             ErrorCachingMinTTL: 0
+           -
+             ErrorCode: 404
+             ResponsePagePath: /index.html
+             ResponseCode: 200
+             ErrorCachingMinTTL: 30
+         DefaultCacheBehavior:
+           AllowedMethods:
+             - HEAD
+             - GET
+           CachedMethods:
+             - GET
+             - HEAD
+           TargetOriginId: !Sub ${MyS3Bucket}.s3.${AWS::Region}.amazonaws.com
+           Compress: false
+           ViewerProtocolPolicy: redirect-to-https
+           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+         Enabled: True
+         Restrictions:
+           GeoRestrion:
+             RestrictionType: none
+         HttpVersion: http2
+         IPV6Enabled: false
+         DefaultRootObject: index.html
+         Origins:
+           - CustomOriginConfig:
+               HTTPPort: 80
+               HTTPSPort: 443
+               OriginKeepaliveTimeout: 5
+               OriginProtocolPolicy: 30
+               OriginSSLProtocols:
+                 - TLSv1
+                 - TLSv1.1
+                 - TLSv1.2
+             DomainName: !Sub ${MyS3Bucket}.s3.${AWS::Region}.amazonaws.com
+             Id: !Sub ${MyS3Bucket}.s3.${AWS::Region}.amazonaws.com
+             S3OriginConfig:
+               OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CfOriginAccessIdentity}'
+         PriceClass: PriceClass_All
+         ViewerCertificate:
+           AcmCertificateArn: !Ref CertificateArn
+           MinimumProtocolVersion: TLSv1.1_2016
+           SslSupportMethod: sni-only   
+     DependsOn: 
+       - MyS3Bucket
+       - CfOriginAccessIdentity
+  WebsiteDNSName:
+     Type: AWS::Route53::RecordSet
+     Properties:
+       Name: !Sub ${DomainName}
+       HostedZoneId: !Ref HostedZoneId
+       Type: A
+       AliasTarget:
+         DNSName: !GetAtt CloudFrontDistr.DomainName
+         HostedZoneId: Z2FDTNDATAQYW2
+Outputs:
+  CloudFrontDistrId:
+    Description: 'Id for our cloudfront distribution'
+    Value: !GetAtt CloudFrontDistr.DomainName
